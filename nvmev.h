@@ -212,7 +212,7 @@ struct nvmev_io_worker {
 	struct task_struct *task_struct;
 	char thread_name[32];
 };
-
+//
 struct nvmev_dev {
 	struct pci_bus *virt_bus;
 	void *virtDev;

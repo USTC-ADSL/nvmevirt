@@ -134,7 +134,7 @@ static bool nvmev_proc_dbs(void)
 		updated = true;
 	}
 
-	// Submission queues
+	// Submission queues（IO队列）
 	for (qid = 1; qid <= nvmev_vdev->nr_sq; qid++) {
 		if (nvmev_vdev->sqes[qid] == NULL)
 			continue;
@@ -147,7 +147,7 @@ static bool nvmev_proc_dbs(void)
 		}
 	}
 
-	// Completion queues
+	// Completion queues（IO队列）
 	for (qid = 1; qid <= nvmev_vdev->nr_cq; qid++) {
 		if (nvmev_vdev->cqes[qid] == NULL)
 			continue;
@@ -163,7 +163,7 @@ static bool nvmev_proc_dbs(void)
 
 	return updated;
 }
-
+// dispatcher为nvmevirt的核心，用于处理来自host的请求
 static int nvmev_dispatcher(void *data)
 {
 	static unsigned long last_dispatched_time = 0;
@@ -171,10 +171,12 @@ static int nvmev_dispatcher(void *data)
 	NVMEV_INFO("nvmev_dispatcher started on cpu %d (node %d)\n",
 		   nvmev_vdev->config.cpu_nr_dispatcher,
 		   cpu_to_node(nvmev_vdev->config.cpu_nr_dispatcher));
-
+	//poll来监控寄存器并处理，主要模仿NVMe设备的处理方式
 	while (!kthread_should_stop()) {
+		// bars是"Base Address Registers"的缩写，这个函数处理NVMe设备的基址寄存器,主要处理admin队列
 		if (nvmev_proc_bars())
 			last_dispatched_time = jiffies;
+		// dbs是"Doorbell Registers"的缩写，这个函数处理NVMe设备的门铃寄存器,主要处理io队列
 		if (nvmev_proc_dbs())
 			last_dispatched_time = jiffies;
 
@@ -599,17 +601,17 @@ static void __print_base_config(void)
 	NVMEV_INFO("Version %x.%x for >> %s <<\n",
 			(NVMEV_VERSION & 0xff00) >> 8, (NVMEV_VERSION & 0x00ff), type);
 }
-
+//Nvmevirt内核模块入口,主要为初始化设备相关定义
 static int NVMeV_init(void)
 {
 	int ret = 0;
 
 	__print_base_config();
-
+	//初始化NVMe_VDEV，主要是PCIe的设备空间
 	nvmev_vdev = VDEV_INIT();
 	if (!nvmev_vdev)
 		return -EINVAL;
-
+	//用于初始化NVMe_vdev中的config信息，包含存储空间的起始地址，大小等
 	if (!__load_configs(&nvmev_vdev->config)) {
 		goto ret_err;
 	}

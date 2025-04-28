@@ -208,7 +208,7 @@ static unsigned int __do_perform_io_using_dma(int sqid, int sq_entry)
 
 	return length;
 }
-
+// request在队列中sort，按照target time
 static void __insert_req_sorted(unsigned int entry, struct nvmev_io_worker *worker,
 				unsigned long nsecs_target)
 {

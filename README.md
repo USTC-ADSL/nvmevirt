@@ -1,5 +1,14 @@
 # NVMeVirt
 
+## Learning-based FTL 开发
+
+NVMeVirt可以模拟多种SSD，而我们只需要关注传统SSD。从Kbuild文件得知，模拟传统SSD的代码包括ssd.*, conv_ftl.*, channel_model.*, 和pqueue。ftl层的代码在conv_ftl.*中。
+
+在conv_ftl.c中conv_proc_nvme_io_cmd()解析nvme命令，再根据命令类型调用相应的函数，如conv_write(), conv_read(), conv_flush()。conv_ftl.c对外暴露的接口好像只有conv_init_namespace(), conv_remove_namespace(), 和conv_proc_nvme_io_cmd()。在conv_ftl.c中模拟ftl行为得到nand闪存命令后，调用ssd.c提供的ssd_advance_nand(), ssd_advance_write_buffer(), ssd_next_idle_time()等接口实现时延模拟。
+
+GC在NVMeVirt的框架中，只能在conv_write()中触发。
+
+
 ## Introduction
 
 NVMeVirt is a versatile software-defined virtual NVMe device. It is implemented as a Linux kernel module providing the system with a virtual NVMe device of various kinds. Currently, NVMeVirt supports conventional SSDs, NVM SSDs, ZNS SSDs, etc. The device is emulated at the PCI layer, presenting a native NVMe device to the entire system. Thus, NVMeVirt has the capability not only to function as a standard storage device, but also to be utilized in advanced storage configurations, such as NVMe-oF target offloading, kernel bypassing, and PCI peer-to-peer communication.

@@ -210,7 +210,7 @@ static void prepare_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 		.pl = 0,
 	};
 }
-
+// 该函数使写指针前进到下一个位置
 static void advance_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
@@ -221,23 +221,24 @@ static void advance_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 			wpp->ch, wpp->lun, wpp->pl, wpp->blk, wpp->pg);
 
 	check_addr(wpp->pg, spp->pgs_per_blk);
+	// 增加页号，如果不是pgs_per_oneshotpg的倍数，则直接返回（模拟多页编程）
 	wpp->pg++;
 	if ((wpp->pg % spp->pgs_per_oneshotpg) != 0)
 		goto out;
-
+	// 将页号重置回当前wordline的起始位置（模拟交错写入）
 	wpp->pg -= spp->pgs_per_oneshotpg;
 	check_addr(wpp->ch, spp->nchs);
 	wpp->ch++;
 	if (wpp->ch != spp->nchs)
 		goto out;
-
+	// 模拟LUN间的交错写入
 	wpp->ch = 0;
 	check_addr(wpp->lun, spp->luns_per_ch);
 	wpp->lun++;
 	/* in this case, we should go to next lun */
 	if (wpp->lun != spp->luns_per_ch)
 		goto out;
-
+	// 模拟SSD在wordline间的顺序写入
 	wpp->lun = 0;
 	/* go to next wordline in the block */
 	wpp->pg += spp->pgs_per_oneshotpg;
@@ -260,7 +261,7 @@ static void advance_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 		pqueue_insert(lm->victim_line_pq, wpp->curline);
 		lm->victim_line_cnt++;
 	}
-	/* current line is used up, pick another empty line */
+	/* current line is used up, pick another empty line，获取新行 */
 	check_addr(wpp->blk, spp->blks_per_pl);
 	wpp->curline = get_next_free_line(conv_ftl);
 	NVMEV_DEBUG_VERBOSE("wpp: got new clean line %d\n", wpp->curline->id);
@@ -278,7 +279,7 @@ out:
 	NVMEV_DEBUG_VERBOSE("advanced wpp: ch:%d, lun:%d, pl:%d, blk:%d, pg:%d (curline %d)\n",
 			wpp->ch, wpp->lun, wpp->pl, wpp->blk, wpp->pg, wpp->curline->id);
 }
-
+// 写入操作，通过获取写入指针来得到下一个可写入的物理位置
 static struct ppa get_new_page(struct conv_ftl *conv_ftl, uint32_t io_type)
 {
 	struct ppa ppa;
@@ -327,7 +328,7 @@ static void remove_rmap(struct conv_ftl *conv_ftl)
 {
 	vfree(conv_ftl->rmap);
 }
-
+// 这里可能需要初始化一下模型写指针
 static void conv_init_ftl(struct conv_ftl *conv_ftl, struct convparams *cpp, struct ssd *ssd)
 {
 	/*copy convparams*/
@@ -362,7 +363,7 @@ static void conv_remove_ftl(struct conv_ftl *conv_ftl)
 	remove_rmap(conv_ftl);
 	remove_maptbl(conv_ftl);
 }
-
+// 初始化参数（估计需要在这里初始化空间用于存放）
 static void conv_init_params(struct convparams *cpp)
 {
 	cpp->op_area_pcent = OP_AREA_PERCENT;
@@ -483,7 +484,7 @@ static inline struct line *get_line(struct conv_ftl *conv_ftl, struct ppa *ppa)
 	return &(conv_ftl->lm.lines[ppa->g.blk]);
 }
 
-/* update SSD status about one page from PG_VALID -> PG_VALID */
+/* update SSD status about one page from PG_VALID -> PG_INVALID */
 static void mark_page_invalid(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
@@ -974,8 +975,9 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 		conv_ftl = &conv_ftls[lpn % nr_parts];
 		local_lpn = lpn / nr_parts;
+		// Check whether the given LPN has been written before,如果LPN曾写入过，将其PPA置为无效
 		ppa = get_maptbl_ent(
-			conv_ftl, local_lpn); // Check whether the given LPN has been written before
+			conv_ftl, local_lpn);
 		if (mapped_ppa(&ppa)) {
 			/* update old page information first */
 			mark_page_invalid(conv_ftl, &ppa);
@@ -983,17 +985,17 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 			NVMEV_DEBUG("%s: %lld is invalid, ", __func__, ppa2pgidx(conv_ftl, &ppa));
 		}
 
-		/* new write */
+		/* new write，创建一个新的ppa地址 */
 		ppa = get_new_page(conv_ftl, USER_IO);
-		/* update maptbl */
+		/* update maptbl，更新映射表 */
 		set_maptbl_ent(conv_ftl, local_lpn, &ppa);
 		NVMEV_DEBUG("%s: got new ppa %lld, ", __func__, ppa2pgidx(conv_ftl, &ppa));
-		/* update rmap */
+		/* update rmap，更新反向映射表（用于支持垃圾回收） */
 		set_rmap_ent(conv_ftl, local_lpn, &ppa);
 
 		mark_page_valid(conv_ftl, &ppa);
 
-		/* need to advance the write pointer here */
+		/* need to advance the write pointer here，更新写入指针，需要让其指向下一个可写入的位置 */
 		advance_write_pointer(conv_ftl, USER_IO);
 
 		/* Aggregate write io in flash page */
@@ -1006,7 +1008,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 			schedule_internal_operation(req->sq_id, nsecs_completed, wbuf,
 						    spp->pgs_per_oneshotpg * spp->pgsz);
 		}
-
+		// 写入操作和GC的平衡，每次写入消耗一个credit，当credit耗尽出发前台垃圾回收
 		consume_write_credit(conv_ftl);
 		check_and_refill_write_credit(conv_ftl);
 	}
@@ -1041,7 +1043,7 @@ static void conv_flush(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	ret->nsecs_target = latest;
 	return;
 }
-
+// 处理来自io.c的proc_io_cmd函数
 bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
 {
 	struct nvme_command *cmd = req->cmd;

@@ -58,7 +58,7 @@ static unsigned int __do_perform_io(int sqid, int sq_entry)
 	u64 *paddr_list = NULL;
 	size_t nsid = cmd->nsid - 1; // 0-based
 
-	offset = __cmd_io_offset(cmd);
+	offset = __cmd_io_offset(cmd); // 将LBA转换为字节偏移量
 	length = __cmd_io_size(cmd);
 	remaining = length;
 
@@ -90,7 +90,7 @@ static unsigned int __do_perform_io(int sqid, int sq_entry)
 			if (io_size + mem_offs > PAGE_SIZE)
 				io_size = PAGE_SIZE - mem_offs;
 		}
-
+		//处理实际请求
 		if (cmd->opcode == nvme_cmd_write ||
 		    cmd->opcode == nvme_cmd_zone_append) {
 			memcpy(nvmev_vdev->ns[nsid].mapped + offset, vaddr + mem_offs, io_size);
@@ -411,7 +411,7 @@ static size_t __nvmev_proc_io(int sqid, int sq_entry, size_t *io_size)
 	uint32_t nsid = cmd->common.nsid - 1;
 #endif
 	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
-
+	// 创建请求，cmd中包含原始的NVMe命令
 	struct nvmev_request req = {
 		.cmd = cmd,
 		.sq_id = sqid,
@@ -432,7 +432,7 @@ static size_t __nvmev_proc_io(int sqid, int sq_entry, size_t *io_size)
 	static unsigned long long clock3 = 0;
 	static unsigned long long counter = 0;
 #endif
-
+	// 处理请求，对应不同的FTL实现，例如simple_ftl.c中的simple_proc_nvme_io_cmd (这里没有实际执行IO，而是解析命令，计算预期完成时间，设置状态)
 	if (!ns->proc_io_cmd(ns, &req, &ret))
 		return false;
 	*io_size = __cmd_io_size(&sq_entry(sq_entry).rw);
@@ -440,7 +440,7 @@ static size_t __nvmev_proc_io(int sqid, int sq_entry, size_t *io_size)
 #ifdef PERF_DEBUG
 	prev_clock2 = local_clock();
 #endif
-
+	// 将请求入队等待处理,sq_entry为请求的索引
 	__enqueue_io_req(sqid, sq->cqid, sq_entry, nsecs_start, &ret);
 
 #ifdef PERF_DEBUG
